@@ -365,7 +365,7 @@ namespace com.bemaservices.MailChimp.Utility
                         rockContext.Database.CommandTimeout = 600;
 
                         var rockPerson = GetRockPerson( member );
-                        if ( rockPerson.IsNotNull() )
+                        if ( rockPerson != null )
                         {
                             mailChimpMemberLookUp.AddOrIgnore( rockPerson.Id, member );
 
@@ -449,42 +449,46 @@ namespace com.bemaservices.MailChimp.Utility
             bool addedPerson = false;
             MCModels.Member member = null;
 
-            try
+            if(groupMember.Person.Email != null )
             {
-                foundMember = _mailChimpManager.Members.ExistsAsync( mailChimpListId, groupMember.Person.Email, null, false ).Result;
-
-                if ( !foundMember )
+                try
                 {
-                    RockContext rockContext = new RockContext();
-                    var emailTypeId = DefinedValueCache.Get( Rock.SystemGuid.DefinedValue.PERSON_SEARCH_KEYS_EMAIL ).Id;
-                    var EmailAddresses = groupMember.Person.GetPersonSearchKeys( rockContext ).AsNoTracking().Where( k => k.SearchTypeValueId == emailTypeId ).Select( x => x.SearchValue );
-                    foreach ( var email in EmailAddresses )
+                    foundMember = _mailChimpManager.Members.ExistsAsync( mailChimpListId, groupMember.Person.Email, null, false ).Result;
+
+                    if ( !foundMember )
                     {
-                        try
+                        RockContext rockContext = new RockContext();
+                        var emailTypeId = DefinedValueCache.Get( Rock.SystemGuid.DefinedValue.PERSON_SEARCH_KEYS_EMAIL ).Id;
+                        var EmailAddresses = groupMember.Person.GetPersonSearchKeys( rockContext ).AsNoTracking().Where( k => k.SearchTypeValueId == emailTypeId ).Select( x => x.SearchValue );
+                        foreach ( var email in EmailAddresses )
                         {
-                            foundMember = _mailChimpManager.Members.ExistsAsync( mailChimpListId, email, null, false ).Result;
-                            if ( foundMember )
+                            try
                             {
-                                // if the Person is found using an alternate email address, their email address needs to be updated in mail chimp.
-                                member = new MCModels.Member
+                                foundMember = _mailChimpManager.Members.ExistsAsync( mailChimpListId, email, null, false ).Result;
+                                if ( foundMember )
                                 {
-                                    EmailAddress = groupMember.Person.Email,
-                                    Status = GetMailChimpMemberStatus( groupMember ),
-                                    Id = _mailChimpManager.Members.Hash( email )
-                                };
-                                break;
+                                    // if the Person is found using an alternate email address, their email address needs to be updated in mail chimp.
+                                    member = new MCModels.Member
+                                    {
+                                        EmailAddress = groupMember.Person.Email,
+                                        Status = GetMailChimpMemberStatus( groupMember ),
+                                        Id = _mailChimpManager.Members.Hash( email )
+                                    };
+                                    break;
+                                }
                             }
-                        }
-                        catch ( Exception ex )
-                        {
-                            ExceptionLogService.LogException( ex );
+                            catch ( Exception ex )
+                            {
+                                ExceptionLogService.LogException( ex );
+                            }
                         }
                     }
                 }
-            }
-            catch ( Exception ex )
-            {
-                ExceptionLogService.LogException( ex );
+                catch ( Exception ex )
+                {
+                    ExceptionLogService.LogException( ex );
+                }
+
             }
 
             SyncPerson( groupMember.Person.Id, member, mailChimpListId, groupIds );
@@ -534,20 +538,20 @@ namespace com.bemaservices.MailChimp.Utility
             // Check if there's a person in the DB who has already been created with a foreign key.  This will only match people added via the mail chimp plugin.
             person = personService.Queryable().AsNoTracking().Where( p => p.ForeignKey == mailchimpForeignKey ).FirstOrDefault();
 
-            if ( person.IsNull() )
+            if ( person == null)
             {
                 var personQuery = new PersonService.PersonMatchQuery( firstName, lastName, email, null, null, null, null, null );
                 // Use find persons vs find person because if there are multile matches, we'll just use the first match vs creating a new person.
                 person = personService.FindPersons( personQuery, false ).OrderBy( p => p.Id ).FirstOrDefault();
             }
 
-            if ( person.IsNull() )
+            if ( person == null )
             {
                 person = personService.Queryable().AsNoTracking().Where( p => p.Email == email ).OrderBy( p => p.Id ).FirstOrDefault();
             }
 
 
-            if ( person.IsNull() )
+            if ( person == null )
             {
                 // Add New Person
                 person = new Person();
@@ -614,7 +618,7 @@ namespace com.bemaservices.MailChimp.Utility
                         {
                             groupMember.GroupMemberStatus = groupMembers.FirstOrDefault().GroupMemberStatus;
                         }
-                        else if ( mailChimpMember.IsNotNull() )
+                        else if ( mailChimpMember != null )
                         {
                             groupMember.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
                         }
@@ -635,7 +639,7 @@ namespace com.bemaservices.MailChimp.Utility
                 }
             }
 
-            if ( mailChimpMember.IsNull() )
+            if ( mailChimpMember == null )
             {
                 if ( person.Email.IsNotNullOrWhiteSpace() )
                 {
@@ -694,7 +698,7 @@ namespace com.bemaservices.MailChimp.Utility
 
             try
             {
-                if ( mailChimpMember.IsNotNull() )
+                if ( mailChimpMember != null)
                 {
                     // Check to see if there are actually any changes in the record before pushing it to mailchimp
                     if ( oldFirstName != person.NickName || oldLastName != person.LastName || oldStatus != mailChimpMember.Status || UpdateMergeFields( ref mailChimpMember, groupMembers, person ) > 0 /* || UpdateAddress( ref mailChimpMember, person, rockContext ) */ )

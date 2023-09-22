@@ -15,6 +15,7 @@ using Rock.UniversalSearch;
 using Rock.UniversalSearch.IndexModels;
 using Rock.Security;
 using Rock.Model;
+using Rock.Lava;
 
 namespace com.bemaservices.MailChimp.Model
 {
@@ -48,7 +49,7 @@ namespace com.bemaservices.MailChimp.Model
 
         #region Virtual Properties
 
-        [LavaInclude]
+        [LavaVisibleAttribute]
         public virtual PersonAlias PersonAlias { get; set; }
 
         #endregion
