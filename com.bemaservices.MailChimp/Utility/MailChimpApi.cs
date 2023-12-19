@@ -449,7 +449,7 @@ namespace com.bemaservices.MailChimp.Utility
             bool addedPerson = false;
             MCModels.Member member = null;
 
-            if(groupMember.Person.Email.IsNotNullOrWhiteSpace())
+            if ( groupMember.Person.Email.IsNotNullOrWhiteSpace() )
             {
                 try
                 {
@@ -538,7 +538,7 @@ namespace com.bemaservices.MailChimp.Utility
             // Check if there's a person in the DB who has already been created with a foreign key.  This will only match people added via the mail chimp plugin.
             person = personService.Queryable().AsNoTracking().Where( p => p.ForeignKey == mailchimpForeignKey ).FirstOrDefault();
 
-            if ( person == null)
+            if ( person == null )
             {
                 var personQuery = new PersonService.PersonMatchQuery( firstName, lastName, email, null, null, null, null, null );
                 // Use find persons vs find person because if there are multile matches, we'll just use the first match vs creating a new person.
@@ -584,7 +584,7 @@ namespace com.bemaservices.MailChimp.Utility
             return person;
         }
 
-        private int SyncPerson( int personId, MCModels.Member mailChimpMember, string mailChimpListId, List<int?>groupIds )
+        private int SyncPerson( int personId, MCModels.Member mailChimpMember, string mailChimpListId, List<int?> groupIds )
         {
             var rockContext = new RockContext();
             var personService = new PersonService( rockContext );
@@ -614,7 +614,7 @@ namespace com.bemaservices.MailChimp.Utility
                         groupMember.GroupRoleId = group.GroupType.DefaultGroupRoleId ?? group.GroupType.Roles.First().Id;
                         groupMemberService.Add( groupMember );
 
-                        if( groupMembers.Any() )
+                        if ( groupMembers.Any() )
                         {
                             groupMember.GroupMemberStatus = groupMembers.FirstOrDefault().GroupMemberStatus;
                         }
@@ -681,13 +681,13 @@ namespace com.bemaservices.MailChimp.Utility
                 var lastChanged = string.IsNullOrEmpty( mailChimpMember.LastChanged ) ? ( DateTime? ) null : DateTime.Parse( mailChimpMember.LastChanged );
 
                 // If the Group Member has been modified more recently, use it's subscription status.
-                if( groupMembers.FirstOrDefault() != null && groupMembers.FirstOrDefault().ModifiedDateTime > lastChanged )
+                if ( groupMembers.FirstOrDefault() != null && groupMembers.FirstOrDefault().ModifiedDateTime > lastChanged )
                 {
                     mailChimpMember.Status = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() );
                 }
 
                 // Update each Group member's Status From the Mailchimp Member's Status
-                foreach( var member in groupMembers )
+                foreach ( var member in groupMembers )
                 {
                     member.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
                 }
@@ -698,7 +698,7 @@ namespace com.bemaservices.MailChimp.Utility
 
             try
             {
-                if ( mailChimpMember != null)
+                if ( mailChimpMember != null )
                 {
                     // Check to see if there are actually any changes in the record before pushing it to mailchimp
                     if ( oldFirstName != person.NickName || oldLastName != person.LastName || oldStatus != mailChimpMember.Status || UpdateMergeFields( ref mailChimpMember, groupMembers, person ) > 0 /* || UpdateAddress( ref mailChimpMember, person, rockContext ) */ )
@@ -775,9 +775,9 @@ namespace com.bemaservices.MailChimp.Utility
                 case MCModels.Status.Subscribed:
                     memberStatus = GroupMemberStatus.Active;
                     break;
-                //case MCModels.Status.Pending:
-                //    memberStatus = GroupMemberStatus.Pending;
-                //    break;
+                    //case MCModels.Status.Pending:
+                    //    memberStatus = GroupMemberStatus.Pending;
+                    //    break;
             }
 
             return memberStatus;
@@ -802,7 +802,7 @@ namespace com.bemaservices.MailChimp.Utility
                     memberStatus = Status.Subscribed;
                 }
             }
-                  
+
             return memberStatus;
         }
 
@@ -829,7 +829,7 @@ namespace com.bemaservices.MailChimp.Utility
                 if ( lava.IsNotNullOrWhiteSpace() )
                 {
                     var newValue = lava.ResolveMergeFields( mergeFields, null, enabledLavaCommands );
-                    if( !member.MergeFields.ContainsKey( definedValue.Value ) || newValue != member.MergeFields[definedValue.Value].ToString() )
+                    if ( !member.MergeFields.ContainsKey( definedValue.Value ) || newValue != member.MergeFields[definedValue.Value].ToString() )
                     {
                         member.MergeFields.AddOrReplace( definedValue.Value, newValue );
                         valuesUpdated++;
@@ -846,11 +846,11 @@ namespace com.bemaservices.MailChimp.Utility
             bool addressUpdated = false;
 
             var personAddress = rockPerson.GetHomeLocation( rockContext );
-            if( personAddress != null )
+            if ( personAddress != null )
             {
                 var mcAddressJsonString = mailChimpMember.MergeFields["ADDRESS"].ToString();
 
-                if( mcAddressJsonString != null )
+                if ( mcAddressJsonString != null )
                 {
 
                     MCModels.Address mcAddress = Newtonsoft.Json.JsonConvert.DeserializeObject<MCModels.Address>( mcAddressJsonString );
@@ -874,7 +874,7 @@ namespace com.bemaservices.MailChimp.Utility
                     }
                 }
 
-                if( addressUpdated )
+                if ( addressUpdated )
                 {
                     var mcAddress = new MCModels.Address()
                     {
