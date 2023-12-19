@@ -449,7 +449,7 @@ namespace com.bemaservices.MailChimp.Utility
             bool addedPerson = false;
             MCModels.Member member = null;
 
-            if(groupMember.Person.Email != null )
+            if(groupMember.Person.Email.IsNotNullOrWhiteSpace())
             {
                 try
                 {
