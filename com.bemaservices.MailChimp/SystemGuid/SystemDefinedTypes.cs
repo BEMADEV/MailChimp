@@ -17,5 +17,7 @@ namespace com.bemaservices.MailChimp.SystemGuid
         public static string MAIL_CHIMP_AUDIENCES = "0ED80CA8-987E-4A00-8CA5-56D0A4BDD629";
 
         public static string MAIL_CHIMP_MERGE_FIELDS = "EDE9D035-5B68-403E-997A-37206BE23225";
+
+        public static string MAIL_CHIMP_TAGS = "C4217DB6-7FD6-4A74-83AE-A204AC9DAA54";
     }
 }

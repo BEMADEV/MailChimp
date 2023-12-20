@@ -16,6 +16,7 @@ namespace com.bemaservices.MailChimp.Jobs
 {
     [DefinedValueField( "0ED80CA8-987E-4A00-8CA5-56D0A4BDD629", "Audiences", "The Audiences whose members should by synced. Leave blank if you would like all audiences synced.", false, true, false, "", "", 0, "Audiences" )]
     [IntegerField( "Days Back to Sync Updates For", "Limit the sync to only Mailchimp and Rock members updated within the last X days. Leave blank to sync all members", false, Key = "DaysToSyncUpdates" )]
+    [BooleanField( "Import Mailchimp Tags?", "Whether or not to include Mailchimp Tags", false, Key = "ImportMailChimpTags" )]
     [DisallowConcurrentExecution]
     public class MailChimpSync : IJob
     {
@@ -27,6 +28,7 @@ namespace com.bemaservices.MailChimp.Jobs
 
             var audienceGuids = dataMap.GetString( "Audiences" ).SplitDelimitedValues().AsGuidList();
             var daysToSyncUpdates = dataMap.GetString( "DaysToSyncUpdates" ).AsIntegerOrNull();
+            var importMailchimpTags = dataMap.GetString( "ImportMailChimpTags" ).AsBoolean();
             foreach ( var account in accounts.DefinedValues )
             {
                 try
@@ -40,7 +42,7 @@ namespace com.bemaservices.MailChimp.Jobs
                         {
                             mailChimpApi.GetMailChimpMergeFields( DefinedValueCache.Get( list.Guid ) );
 
-                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), daysToSyncUpdates );
+                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), daysToSyncUpdates, importMailchimpTags );
                         }
                     }
                 }

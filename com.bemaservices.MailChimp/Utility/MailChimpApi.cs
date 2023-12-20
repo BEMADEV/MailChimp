@@ -18,6 +18,7 @@ using MailChimp.Net.Core;
 using DotLiquid.Tags;
 using MailChimp.Net.Models;
 using System.Security.Cryptography.X509Certificates;
+using com.bemaservices.MailChimp.Utility.Api;
 
 namespace com.bemaservices.MailChimp.Utility
 {
@@ -26,6 +27,11 @@ namespace com.bemaservices.MailChimp.Utility
         private MCInterfaces.IMailChimpManager _mailChimpManager;
         private string _apiKey;
         private DefinedValueCache _mailChimpAccount;
+
+        private Guid MailchimpTagDefinedTypeGuid
+        {
+            get { return SystemGuid.SystemDefinedTypes.MAIL_CHIMP_TAGS.AsGuid(); }
+        }
 
         public MailChimpApi( DefinedValueCache mailChimpAccount )
         {
@@ -293,11 +299,16 @@ namespace com.bemaservices.MailChimp.Utility
             return null;
         }
 
-        public void SyncMembers( DefinedValueCache mailChimpList, int? daysToSyncUpdates = null )
+        public void SyncMembers( DefinedValueCache mailChimpList, int? daysToSyncUpdates = null, bool importTags = false )
         {
             Dictionary<int, MCModels.Member> mailChimpMemberLookUp = new Dictionary<int, MCModels.Member>();
             var mailChimpListIdAttributeKey = AttributeCache.Get( MailChimp.SystemGuid.Attribute.MAIL_CHIMP_AUDIENCE_ID_ATTRIBUTE.AsGuid() ).Key;
             var mailChimpListId = mailChimpList.GetAttributeValue( mailChimpListIdAttributeKey );
+            Dictionary<int, DefinedValue> mailChimpTags = new DefinedValueService( new RockContext() )
+                    .Queryable()
+                    .AsNoTracking()
+                    .Where( dv => dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid && dv.ForeignId.HasValue )
+                    .ToDictionary( dv => dv.ForeignId.Value, dv => dv );
 
             DateTime? dateLimit = null;
             if ( daysToSyncUpdates.HasValue )
@@ -369,7 +380,7 @@ namespace com.bemaservices.MailChimp.Utility
                         {
                             mailChimpMemberLookUp.AddOrIgnore( rockPerson.Id, member );
 
-                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds );
+                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds, importTags, mailChimpTags );
 
                         }
                         else
@@ -584,11 +595,17 @@ namespace com.bemaservices.MailChimp.Utility
             return person;
         }
 
-        private int SyncPerson( int personId, MCModels.Member mailChimpMember, string mailChimpListId, List<int?> groupIds )
+        private int SyncPerson( int personId, MCModels.Member mailChimpMember
+            , string mailChimpListId
+            , List<int?> groupIds
+            , bool importTags = false
+            , Dictionary<int, DefinedValue> mailChimpTags = null
+            )
         {
             var rockContext = new RockContext();
             var personService = new PersonService( rockContext );
             var groupService = new GroupService( rockContext );
+            var definedValueService = new DefinedValueService( rockContext );
             var groupMemberService = new GroupMemberService( rockContext );
             var recordsUpdated = 0;
 
@@ -636,6 +653,82 @@ namespace com.bemaservices.MailChimp.Utility
                         string message = String.Format( "Error Adding Person #{0} to Group '{1}'", personId, group.Name );
                         ExceptionLogService.LogException( new Exception( message, ex ) );
                     }
+                }
+            }
+
+            var tagAttribute = AttributeCache.Get( SystemGuid.Attribute.PERSON_MAIL_CHIMP_TAGS.AsGuid() );
+            if ( importTags &&
+                tagAttribute != null &&
+                _mailChimpAccount != null &&
+                mailChimpMember != null &&
+                mailChimpListId.IsNotNullOrWhiteSpace()
+                )
+            {
+                List<TagResponse> tagList = new List<TagResponse>();
+                List<string> errorMessages = new List<string>();
+                if ( !MailchimpDirectApi.GetTagsForUser( _mailChimpAccount, mailChimpListId, mailChimpMember.Id, out tagList, errorMessages ) )
+                {
+                    errorMessages.Add( String.Format( "Could not get mailchimp tags for Person #{0}", personId ) );
+                    HandleErrorMessages( errorMessages );
+                }
+                else
+                {
+                    var definedValueList = new List<DefinedValue>();
+                    foreach ( var tag in tagList )
+                    {
+                        DefinedValue definedValue = null;
+                        if ( mailChimpTags == null )
+                        {
+                            mailChimpTags = new DefinedValueService( new RockContext() )
+                                    .Queryable()
+                                    .AsNoTracking()
+                                    .Where( dv => dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid && dv.ForeignId.HasValue )
+                                    .ToDictionary( dv => dv.ForeignId.Value, dv => dv );
+                        }
+                        if ( mailChimpTags.ContainsKey( tag.Id ) )
+                        {
+                            definedValue = mailChimpTags[tag.Id];
+                        }
+                        if ( definedValue == null )
+                        {
+                            definedValue = definedValueService
+                                .Queryable()
+                                .AsNoTracking()
+                                .Where( dv => dv.ForeignId == tag.Id && dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid )
+                                .FirstOrDefault();
+                            if ( definedValue == null )
+                            {
+                                try
+                                {
+                                    var tagValue = new DefinedValue();
+                                    tagValue.ForeignId = tag.Id;
+                                    tagValue.ForeignKey = MailChimp.Constants.ForeignKey;
+                                    tagValue.IsSystem = true;
+                                    tagValue.DefinedTypeId = DefinedTypeCache.Get( MailchimpTagDefinedTypeGuid ).Id;
+                                    tagValue.Value = tag.Name;
+                                    definedValueService.Add( tagValue );
+                                    rockContext.SaveChanges();
+                                    definedValue = definedValueService.Get( tagValue.Guid );
+                                }
+                                catch ( Exception ex )
+                                {
+                                    string message = String.Format( "Error Adding Tag {0} to Rock", tag.Name );
+                                    ExceptionLogService.LogException( new Exception( message, ex ) );
+                                }
+                            }
+                            if ( definedValue != null && definedValue.ForeignId.HasValue )
+                            {
+                                mailChimpTags.AddOrReplace( definedValue.ForeignId.Value, definedValue );
+                            }
+                        }
+                        if ( definedValue != null )
+                        {
+                            definedValueList.Add( definedValue );
+                        }
+                    }
+                    person.LoadAttributes();
+                    person.SetAttributeValue( tagAttribute.Key, definedValueList.Select( dv => dv.Guid ).ToList().AsDelimited( "," ) );
+                    person.SaveAttributeValue( tagAttribute.Key, rockContext );
                 }
             }
 
@@ -893,6 +986,15 @@ namespace com.bemaservices.MailChimp.Utility
 
             return addressUpdated;
 
+        }
+        private void HandleErrorMessages( List<string> errorMessages )
+        {
+            if ( errorMessages.Any() )
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append( errorMessages );
+                ExceptionLogService.LogException( new Exception( sb.ToString() ) );
+            }
         }
 
     }
