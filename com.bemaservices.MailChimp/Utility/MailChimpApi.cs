@@ -293,16 +293,16 @@ namespace com.bemaservices.MailChimp.Utility
             return null;
         }
 
-        public void SyncMembers( DefinedValueCache mailChimpList, int? daysToSyncUpdates = null )
+        public void SyncMembers( DefinedValueCache mailChimpList, MailChimpSyncSettings mailchimpSyncSettings )
         {
             Dictionary<int, MCModels.Member> mailChimpMemberLookUp = new Dictionary<int, MCModels.Member>();
             var mailChimpListIdAttributeKey = AttributeCache.Get( MailChimp.SystemGuid.Attribute.MAIL_CHIMP_AUDIENCE_ID_ATTRIBUTE.AsGuid() ).Key;
             var mailChimpListId = mailChimpList.GetAttributeValue( mailChimpListIdAttributeKey );
 
             DateTime? dateLimit = null;
-            if ( daysToSyncUpdates.HasValue )
+            if ( mailchimpSyncSettings.DaysToSyncUpdates.HasValue )
             {
-                dateLimit = RockDateTime.Now.AddDays( daysToSyncUpdates.Value * -1 );
+                dateLimit = RockDateTime.Now.AddDays( mailchimpSyncSettings.DaysToSyncUpdates.Value * -1 );
             }
 
             try
@@ -895,5 +895,10 @@ namespace com.bemaservices.MailChimp.Utility
 
         }
 
+    }
+
+    public class MailChimpSyncSettings
+    {
+        public int? DaysToSyncUpdates { get; set; }
     }
 }

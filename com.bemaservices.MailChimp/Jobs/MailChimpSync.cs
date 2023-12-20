@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Linq;
-
+using com.bemaservices.MailChimp.Utility;
 using Quartz;
 
 using Rock;
@@ -27,6 +27,10 @@ namespace com.bemaservices.MailChimp.Jobs
 
             var audienceGuids = dataMap.GetString( "Audiences" ).SplitDelimitedValues().AsGuidList();
             var daysToSyncUpdates = dataMap.GetString( "DaysToSyncUpdates" ).AsIntegerOrNull();
+
+            MailChimpSyncSettings mailChimpSyncSettings = new MailChimpSyncSettings();
+            mailChimpSyncSettings.DaysToSyncUpdates = daysToSyncUpdates;
+
             foreach ( var account in accounts.DefinedValues )
             {
                 try
@@ -40,7 +44,7 @@ namespace com.bemaservices.MailChimp.Jobs
                         {
                             mailChimpApi.GetMailChimpMergeFields( DefinedValueCache.Get( list.Guid ) );
 
-                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), daysToSyncUpdates );
+                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), mailChimpSyncSettings );
                         }
                     }
                 }
