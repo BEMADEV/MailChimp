@@ -220,7 +220,10 @@
     <RegexTransform Items="@(RegexTransform)" />
   </Target>
   <PropertyGroup>
-    <PostBuildEvent>xcopy /Y /R /E /I "$(ProjectDir)Plugins" "$(SolutionDir)RockWeb\Plugins"
-xcopy /Y /R "$(ProjectDir)bin\Debug\com.bemaservices.MailChimp.dll" "$(SolutionDir)RockWeb\bin"</PostBuildEvent>
+    <PostBuildEvent>
+      xcopy /Y /R /E /I "$(ProjectDir)Plugins" "$(SolutionDir)RockWeb\Plugins"
+      xcopy /Y /R /E /I "$(ProjectDir)lib" "$(SolutionDir)RockWeb\bin"
+      xcopy /Y /R "$(ProjectDir)bin\Debug\com.bemaservices.MailChimp.dll" "$(SolutionDir)RockWeb\bin"
+    </PostBuildEvent>
   </PropertyGroup>
 </Project>

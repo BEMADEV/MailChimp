@@ -299,7 +299,6 @@ namespace com.bemaservices.MailChimp.Utility
             return null;
         }
 
-        public void SyncMembers( DefinedValueCache mailChimpList, int? daysToSyncUpdates = null, bool importTags = false )
         public void SyncMembers( DefinedValueCache mailChimpList, MailChimpSyncSettings mailchimpSyncSettings )
         {
             Dictionary<int, MCModels.Member> mailChimpMemberLookUp = new Dictionary<int, MCModels.Member>();
@@ -382,9 +381,7 @@ namespace com.bemaservices.MailChimp.Utility
                         {
                             mailChimpMemberLookUp.AddOrIgnore( rockPerson.Id, member );
 
-                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds, importTags, mailChimpTags );
-                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds, mailchimpSyncSettings );
-
+                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds, mailchimpSyncSettings, mailChimpTags );
                         }
                         else
                         {
@@ -601,13 +598,12 @@ namespace com.bemaservices.MailChimp.Utility
             return person;
         }
 
-        private int SyncPerson( int personId, MCModels.Member mailChimpMember
+        private int SyncPerson( int personId
+            , MCModels.Member mailChimpMember
             , string mailChimpListId
             , List<int?> groupIds
-            , bool importTags = false
-            , Dictionary<int, DefinedValue> mailChimpTags = null
-            )
-        private int SyncPerson( int personId, MCModels.Member mailChimpMember, string mailChimpListId, List<int?> groupIds, MailChimpSyncSettings mailchimpSyncSettings )
+            , MailChimpSyncSettings mailchimpSyncSettings
+            , Dictionary<int, DefinedValue> mailChimpTags = null )
         {
             var rockContext = new RockContext();
             var personService = new PersonService( rockContext );
@@ -664,82 +660,6 @@ namespace com.bemaservices.MailChimp.Utility
                             ExceptionLogService.LogException( new Exception( message, ex ) );
                         }
                     }
-                }
-            }
-
-            var tagAttribute = AttributeCache.Get( SystemGuid.Attribute.PERSON_MAIL_CHIMP_TAGS.AsGuid() );
-            if ( importTags &&
-                tagAttribute != null &&
-                _mailChimpAccount != null &&
-                mailChimpMember != null &&
-                mailChimpListId.IsNotNullOrWhiteSpace()
-                )
-            {
-                List<TagResponse> tagList = new List<TagResponse>();
-                List<string> errorMessages = new List<string>();
-                if ( !MailchimpDirectApi.GetTagsForUser( _mailChimpAccount, mailChimpListId, mailChimpMember.Id, out tagList, errorMessages ) )
-                {
-                    errorMessages.Add( String.Format( "Could not get mailchimp tags for Person #{0}", personId ) );
-                    HandleErrorMessages( errorMessages );
-                }
-                else
-                {
-                    var definedValueList = new List<DefinedValue>();
-                    foreach ( var tag in tagList )
-                    {
-                        DefinedValue definedValue = null;
-                        if ( mailChimpTags == null )
-                        {
-                            mailChimpTags = new DefinedValueService( new RockContext() )
-                                    .Queryable()
-                                    .AsNoTracking()
-                                    .Where( dv => dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid && dv.ForeignId.HasValue )
-                                    .ToDictionary( dv => dv.ForeignId.Value, dv => dv );
-                        }
-                        if ( mailChimpTags.ContainsKey( tag.Id ) )
-                        {
-                            definedValue = mailChimpTags[tag.Id];
-                        }
-                        if ( definedValue == null )
-                        {
-                            definedValue = definedValueService
-                                .Queryable()
-                                .AsNoTracking()
-                                .Where( dv => dv.ForeignId == tag.Id && dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid )
-                                .FirstOrDefault();
-                            if ( definedValue == null )
-                            {
-                                try
-                                {
-                                    var tagValue = new DefinedValue();
-                                    tagValue.ForeignId = tag.Id;
-                                    tagValue.ForeignKey = MailChimp.Constants.ForeignKey;
-                                    tagValue.IsSystem = true;
-                                    tagValue.DefinedTypeId = DefinedTypeCache.Get( MailchimpTagDefinedTypeGuid ).Id;
-                                    tagValue.Value = tag.Name;
-                                    definedValueService.Add( tagValue );
-                                    rockContext.SaveChanges();
-                                    definedValue = definedValueService.Get( tagValue.Guid );
-                                }
-                                catch ( Exception ex )
-                                {
-                                    string message = String.Format( "Error Adding Tag {0} to Rock", tag.Name );
-                                    ExceptionLogService.LogException( new Exception( message, ex ) );
-                                }
-                            }
-                            if ( definedValue != null && definedValue.ForeignId.HasValue )
-                            {
-                                mailChimpTags.AddOrReplace( definedValue.ForeignId.Value, definedValue );
-                            }
-                        }
-                        if ( definedValue != null )
-                        {
-                            definedValueList.Add( definedValue );
-                        }
-                    }
-                    person.LoadAttributes();
-                    person.SetAttributeValue( tagAttribute.Key, definedValueList.Select( dv => dv.Guid ).ToList().AsDelimited( "," ) );
-                    person.SaveAttributeValue( tagAttribute.Key, rockContext );
                 }
             }
 
@@ -810,6 +730,90 @@ namespace com.bemaservices.MailChimp.Utility
                         member.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
                     }
                 }
+            }
+
+            try
+            {
+                var tagAttribute = AttributeCache.Get( SystemGuid.Attribute.PERSON_MAIL_CHIMP_TAGS.AsGuid() );
+                if ( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.ImportTags ) &&
+                    tagAttribute != null &&
+                    _mailChimpAccount != null &&
+                    mailChimpMember != null &&
+                    mailChimpListId.IsNotNullOrWhiteSpace()
+                    )
+                {
+                    List<TagResponse> tagList = new List<TagResponse>();
+                    List<string> errorMessages = new List<string>();
+                    if ( !MailchimpDirectApi.GetTagsForUser( _mailChimpAccount, mailChimpListId, mailChimpMember.Id, out tagList, errorMessages ) )
+                    {
+                        errorMessages.Add( String.Format( "Could not get mailchimp tags for Person #{0}", personId ) );
+                        HandleErrorMessages( errorMessages );
+                    }
+                    else
+                    {
+                        var definedValueList = new List<DefinedValue>();
+                        person.LoadAttributes();
+                        foreach ( var tag in tagList )
+                        {
+                            DefinedValue definedValue = null;
+                            if ( mailChimpTags == null )
+                            {
+                                mailChimpTags = new DefinedValueService( new RockContext() )
+                                        .Queryable()
+                                        .AsNoTracking()
+                                        .Where( dv => dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid && dv.ForeignId.HasValue )
+                                        .ToDictionary( dv => dv.ForeignId.Value, dv => dv );
+                            }
+                            if ( mailChimpTags.ContainsKey( tag.Id ) )
+                            {
+                                definedValue = mailChimpTags[tag.Id];
+                            }
+                            if ( definedValue == null )
+                            {
+                                definedValue = definedValueService
+                                    .Queryable()
+                                    .AsNoTracking()
+                                    .Where( dv => dv.ForeignId == tag.Id && dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid )
+                                    .FirstOrDefault();
+                                if ( definedValue == null )
+                                {
+                                    try
+                                    {
+                                        var tagValue = new DefinedValue();
+                                        tagValue.ForeignId = tag.Id;
+                                        tagValue.ForeignKey = MailChimp.Constants.ForeignKey;
+                                        tagValue.IsSystem = true;
+                                        tagValue.DefinedTypeId = DefinedTypeCache.Get( MailchimpTagDefinedTypeGuid ).Id;
+                                        tagValue.Value = tag.Name;
+                                        definedValueService.Add( tagValue );
+                                        rockContext.SaveChanges();
+                                        definedValue = definedValueService.Get( tagValue.Guid );
+                                    }
+                                    catch ( Exception ex )
+                                    {
+                                        string message = String.Format( "Error Adding Tag {0} to Rock", tag.Name );
+                                        ExceptionLogService.LogException( new Exception( message, ex ) );
+                                    }
+                                }
+                                if ( definedValue != null && definedValue.ForeignId.HasValue )
+                                {
+                                    mailChimpTags.AddOrReplace( definedValue.ForeignId.Value, definedValue );
+                                }
+                            }
+                            if ( definedValue != null )
+                            {
+                                definedValueList.Add( definedValue );
+                            }
+                        }
+                        person.SetAttributeValue( tagAttribute.Key, definedValueList.Select( dv => dv.Guid ).ToList().AsDelimited( "," ) );
+                        person.SaveAttributeValue( tagAttribute.Key, rockContext );
+                    }
+                }
+            }
+            catch ( Exception ex )
+            {
+                string message = String.Format( "Error Importing Tags to Rock" );
+                ExceptionLogService.LogException( new Exception( message, ex ) );
             }
 
             // At this point, all the changes in Rock are done, so Save any changes
@@ -1042,6 +1046,7 @@ namespace com.bemaservices.MailChimp.Utility
     {
         AddNewRecord = 0,
         UpdateExistingRecord = 1,
-        AddRecordToList = 2
+        AddRecordToList = 2,
+        ImportTags = 3
     }
 }

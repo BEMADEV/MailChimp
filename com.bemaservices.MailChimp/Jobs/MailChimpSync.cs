@@ -20,7 +20,7 @@ namespace com.bemaservices.MailChimp.Jobs
     [EnumsField( "MailChimp To Rock Settings",
         Description = "The rights MailChimp has to edit Rock.",
         EnumSourceType = typeof( SyncPrivileges ),
-        DefaultValue = "0,1,2",
+        DefaultValue = "0,1,2,3",
         Key = "MailChimpToRock")]
     [EnumsField( "Rock To MailChimp Settings",
         Description = "The rights Rock has to edit MailChimp.",
@@ -38,7 +38,6 @@ namespace com.bemaservices.MailChimp.Jobs
 
             var audienceGuids = dataMap.GetString( "Audiences" ).SplitDelimitedValues().AsGuidList();
             var daysToSyncUpdates = dataMap.GetString( "DaysToSyncUpdates" ).AsIntegerOrNull();
-            var importMailchimpTags = dataMap.GetString( "ImportMailChimpTags" ).AsBoolean();
             var mailChimpToRockSettings = dataMap.GetString( "MailChimpToRock" ).SplitDelimitedValues().AsEnumList<SyncPrivileges>();
             var rockToMailChimpSettings = dataMap.GetString( "RockToMailChimp" ).SplitDelimitedValues().AsEnumList<SyncPrivileges>();
 
@@ -60,7 +59,6 @@ namespace com.bemaservices.MailChimp.Jobs
                         {
                             mailChimpApi.GetMailChimpMergeFields( DefinedValueCache.Get( list.Guid ) );
 
-                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), daysToSyncUpdates, importMailchimpTags );
                             mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), mailChimpSyncSettings );
                         }
                     }
