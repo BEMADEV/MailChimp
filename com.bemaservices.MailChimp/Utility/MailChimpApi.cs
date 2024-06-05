@@ -463,7 +463,7 @@ namespace com.bemaservices.MailChimp.Utility
             bool addedPerson = false;
             MCModels.Member member = null;
 
-            if ( groupMember.Person.Email.IsNotNullOrWhiteSpace() )
+            if ( groupMember.Person.Email.IsNotNullOrWhiteSpace())
             {
                 try
                 {
@@ -669,7 +669,10 @@ namespace com.bemaservices.MailChimp.Utility
                 isNewMailChimpRecord = true;
                 if ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddNewRecord ) )
                 {
-                    if ( person.Email.IsNotNullOrWhiteSpace() )
+                    var inactiveRecordValueGuid = Rock.SystemGuid.DefinedValue.PERSON_RECORD_STATUS_INACTIVE.AsGuid();
+                    if ( person.Email.IsNotNullOrWhiteSpace() &&
+                        person.IsDeceased == false && 
+                        person.RecordStatusValue.Guid != inactiveRecordValueGuid )
                     {
                         mailChimpMember = new MCModels.Member
                         {
@@ -680,8 +683,8 @@ namespace com.bemaservices.MailChimp.Utility
                     }
                     else
                     {
-                        Exception ex = new Exception( person.FullName + " was not synced to Mail Chimp because they do not have an email address" );
-                        ExceptionLogService.LogException( ex );
+                        //Exception ex = new Exception( person.FullName + " was not synced to Mail Chimp because they do not have an email address" );
+                        //ExceptionLogService.LogException( ex );
                     }
 
                 }
