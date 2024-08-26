@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -18,6 +18,7 @@ using MailChimp.Net.Core;
 using DotLiquid.Tags;
 using MailChimp.Net.Models;
 using System.Security.Cryptography.X509Certificates;
+using com.bemaservices.MailChimp.Utility.Api;
 
 namespace com.bemaservices.MailChimp.Utility
 {
@@ -26,6 +27,11 @@ namespace com.bemaservices.MailChimp.Utility
         private MCInterfaces.IMailChimpManager _mailChimpManager;
         private string _apiKey;
         private DefinedValueCache _mailChimpAccount;
+
+        private Guid MailchimpTagDefinedTypeGuid
+        {
+            get { return SystemGuid.SystemDefinedTypes.MAIL_CHIMP_TAGS.AsGuid(); }
+        }
 
         public MailChimpApi( DefinedValueCache mailChimpAccount )
         {
@@ -293,20 +299,26 @@ namespace com.bemaservices.MailChimp.Utility
             return null;
         }
 
-        public void SyncMembers( DefinedValueCache mailChimpList, int? daysToSyncUpdates = null )
+        public void SyncMembers( DefinedValueCache mailChimpList, MailChimpSyncSettings mailchimpSyncSettings )
         {
             Dictionary<int, MCModels.Member> mailChimpMemberLookUp = new Dictionary<int, MCModels.Member>();
             var mailChimpListIdAttributeKey = AttributeCache.Get( MailChimp.SystemGuid.Attribute.MAIL_CHIMP_AUDIENCE_ID_ATTRIBUTE.AsGuid() ).Key;
             var mailChimpListId = mailChimpList.GetAttributeValue( mailChimpListIdAttributeKey );
+            Dictionary<int, DefinedValue> mailChimpTags = new DefinedValueService( new RockContext() )
+                    .Queryable()
+                    .AsNoTracking()
+                    .Where( dv => dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid && dv.ForeignId.HasValue )
+                    .ToDictionary( dv => dv.ForeignId.Value, dv => dv );
 
             DateTime? dateLimit = null;
-            if ( daysToSyncUpdates.HasValue )
+            if ( mailchimpSyncSettings.DaysToSyncUpdates.HasValue )
             {
-                dateLimit = RockDateTime.Now.AddDays( daysToSyncUpdates.Value * -1 );
+                dateLimit = RockDateTime.Now.AddDays( mailchimpSyncSettings.DaysToSyncUpdates.Value * -1 );
             }
 
             try
             {
+                // First, Fetch the Records
                 int offset = 0;
                 bool moreRecordsToFetch = true;
                 var memberRequest = new MemberRequest();
@@ -364,13 +376,12 @@ namespace com.bemaservices.MailChimp.Utility
                         GroupService groupService = new GroupService( rockContext );
                         rockContext.Database.CommandTimeout = 600;
 
-                        var rockPerson = GetRockPerson( member );
+                        var rockPerson = GetRockPerson( member, mailchimpSyncSettings );
                         if ( rockPerson != null )
                         {
-                            mailChimpMemberLookUp.AddOrIgnore( rockPerson.Id, member );
+                            mailChimpMemberLookUp.AddOrReplace( rockPerson.Id, member );
 
-                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds );
-
+                            SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds, mailchimpSyncSettings, mailChimpTags );
                         }
                         else
                         {
@@ -415,7 +426,10 @@ namespace com.bemaservices.MailChimp.Utility
                                     {
                                         if ( !mailChimpMemberLookUp.ContainsKey( groupMember.PersonId ) )
                                         {
-                                            AddPersonToMailChimp( groupMember, mailChimpListId, groupIds );
+                                            if ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddRecordToList ) )
+                                            {
+                                                AddPersonToMailChimp( groupMember, mailChimpListId, groupIds, mailchimpSyncSettings );
+                                            }
                                         }
                                     }
                                     catch ( Exception ex )
@@ -443,19 +457,19 @@ namespace com.bemaservices.MailChimp.Utility
 
         }
 
-        private bool AddPersonToMailChimp( GroupMember groupMember, string mailChimpListId, List<int?> groupIds )
+        private bool AddPersonToMailChimp( GroupMember groupMember, string mailChimpListId, List<int?> groupIds, MailChimpSyncSettings mailchimpSyncSettings )
         {
             bool foundMember = false;
             bool addedPerson = false;
             MCModels.Member member = null;
 
-            if(groupMember.Person.Email != null )
+            if ( groupMember.Person.Email.IsNotNullOrWhiteSpace())
             {
                 try
                 {
                     foundMember = _mailChimpManager.Members.ExistsAsync( mailChimpListId, groupMember.Person.Email, null, false ).Result;
 
-                    if ( !foundMember )
+                    if ( !foundMember && mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddNewRecord ) )
                     {
                         RockContext rockContext = new RockContext();
                         var emailTypeId = DefinedValueCache.Get( Rock.SystemGuid.DefinedValue.PERSON_SEARCH_KEYS_EMAIL ).Id;
@@ -479,19 +493,21 @@ namespace com.bemaservices.MailChimp.Utility
                             }
                             catch ( Exception ex )
                             {
-                                ExceptionLogService.LogException( ex );
+                                string message = String.Format( "Error Building a new Mailchimp Member object from a Rock email address" );
+                                ExceptionLogService.LogException( new Exception( message, ex ) );
                             }
                         }
                     }
                 }
                 catch ( Exception ex )
                 {
-                    ExceptionLogService.LogException( ex );
+                    string message = String.Format( "Error Building new Mailchimp Member objects from a Rock GroupMember." );
+                    ExceptionLogService.LogException( new Exception( message, ex ) );
                 }
 
             }
 
-            SyncPerson( groupMember.Person.Id, member, mailChimpListId, groupIds );
+            SyncPerson( groupMember.Person.Id, member, mailChimpListId, groupIds, mailchimpSyncSettings );
 
             return addedPerson;
         }
@@ -521,7 +537,7 @@ namespace com.bemaservices.MailChimp.Utility
 
         }
 
-        private Person GetRockPerson( MCModels.Member member )
+        private Person GetRockPerson( MCModels.Member member, MailChimpSyncSettings mailchimpSyncSettings )
         {
             Person person = null;
             RockContext rockContext = new RockContext();
@@ -538,7 +554,7 @@ namespace com.bemaservices.MailChimp.Utility
             // Check if there's a person in the DB who has already been created with a foreign key.  This will only match people added via the mail chimp plugin.
             person = personService.Queryable().AsNoTracking().Where( p => p.ForeignKey == mailchimpForeignKey ).FirstOrDefault();
 
-            if ( person == null)
+            if ( person == null )
             {
                 var personQuery = new PersonService.PersonMatchQuery( firstName, lastName, email, null, null, null, null, null );
                 // Use find persons vs find person because if there are multile matches, we'll just use the first match vs creating a new person.
@@ -551,7 +567,7 @@ namespace com.bemaservices.MailChimp.Utility
             }
 
 
-            if ( person == null )
+            if ( person == null && mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.AddNewRecord ) )
             {
                 // Add New Person
                 person = new Person();
@@ -559,7 +575,7 @@ namespace com.bemaservices.MailChimp.Utility
                 person.LastName = lastName.FixCase();
                 person.IsEmailActive = isEmailActive;
                 person.Email = email;
-                person.EmailPreference = GetRockEmailPrefernce( member.Status );
+                person.EmailPreference = GetRockEmailPreference( member.Status );
                 person.EmailNote = emailNote;
                 person.RecordTypeValueId = DefinedValueCache.Get( Rock.SystemGuid.DefinedValue.PERSON_RECORD_TYPE_PERSON.AsGuid() ).Id;
                 person.ForeignKey = mailchimpForeignKey;
@@ -584,11 +600,17 @@ namespace com.bemaservices.MailChimp.Utility
             return person;
         }
 
-        private int SyncPerson( int personId, MCModels.Member mailChimpMember, string mailChimpListId, List<int?>groupIds )
+        private int SyncPerson( int personId
+            , MCModels.Member mailChimpMember
+            , string mailChimpListId
+            , List<int?> groupIds
+            , MailChimpSyncSettings mailchimpSyncSettings
+            , Dictionary<int, DefinedValue> mailChimpTags = null )
         {
             var rockContext = new RockContext();
             var personService = new PersonService( rockContext );
             var groupService = new GroupService( rockContext );
+            var definedValueService = new DefinedValueService( rockContext );
             var groupMemberService = new GroupMemberService( rockContext );
             var recordsUpdated = 0;
 
@@ -602,58 +624,71 @@ namespace com.bemaservices.MailChimp.Utility
                                     .OrderByDescending( m => m.ModifiedDateTime )
                                     .ToList();
 
-            var groupsToAddMembers = groupIds.Where( g => !groupMembers.Any( m => m.GroupId == g.Value ) );
-            if ( groupsToAddMembers.Any() )
+            if ( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.AddRecordToList ) )
             {
-                foreach ( var groupId in groupsToAddMembers )
+
+                var groupsToAddMembers = groupIds.Where( g => !groupMembers.Any( m => m.GroupId == g.Value ) );
+                if ( groupsToAddMembers.Any() )
                 {
-                    var group = groupService.Get( groupId.Value );
-                    try
+                    foreach ( var groupId in groupsToAddMembers )
                     {
-                        var groupMember = new GroupMember { PersonId = personId, GroupId = group.Id };
-                        groupMember.GroupRoleId = group.GroupType.DefaultGroupRoleId ?? group.GroupType.Roles.First().Id;
-                        groupMemberService.Add( groupMember );
-
-                        if( groupMembers.Any() )
+                        var group = groupService.Get( groupId.Value );
+                        try
                         {
-                            groupMember.GroupMemberStatus = groupMembers.FirstOrDefault().GroupMemberStatus;
-                        }
-                        else if ( mailChimpMember != null )
-                        {
-                            groupMember.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
-                        }
-                        else
-                        {
-                            groupMember.GroupMemberStatus = GroupMemberStatus.Active;
-                        }
+                            var groupMember = new GroupMember { PersonId = personId, GroupId = group.Id };
+                            groupMember.GroupRoleId = group.GroupType.DefaultGroupRoleId ?? group.GroupType.Roles.First().Id;
+                            groupMemberService.Add( groupMember );
 
-                        groupMembers.Add( groupMember );
-                        //groupMember.GroupMemberStatus = GetRockGroupMemberStatus( member.Status );
+                            if ( groupMembers.Any() )
+                            {
+                                groupMember.GroupMemberStatus = groupMembers.FirstOrDefault().GroupMemberStatus;
+                            }
+                            else if ( mailChimpMember != null )
+                            {
+                                groupMember.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
+                            }
+                            else
+                            {
+                                groupMember.GroupMemberStatus = GroupMemberStatus.Active;
+                            }
 
-                    }
-                    catch ( Exception ex )
-                    {
-                        string message = String.Format( "Error Adding Person #{0} to Group '{1}'", personId, group.Name );
-                        ExceptionLogService.LogException( new Exception( message, ex ) );
+                            groupMembers.Add( groupMember );
+                            //groupMember.GroupMemberStatus = GetRockGroupMemberStatus( member.Status );
+
+                        }
+                        catch ( Exception ex )
+                        {
+                            string message = String.Format( "Error Adding Person #{0} to Group '{1}'", personId, group.Name );
+                            ExceptionLogService.LogException( new Exception( message, ex ) );
+                        }
                     }
                 }
             }
 
+            var isNewMailChimpRecord = false;
             if ( mailChimpMember == null )
             {
-                if ( person.Email.IsNotNullOrWhiteSpace() )
+                isNewMailChimpRecord = true;
+                if ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddNewRecord ) )
                 {
-                    mailChimpMember = new MCModels.Member
+                    var inactiveRecordValueGuid = Rock.SystemGuid.DefinedValue.PERSON_RECORD_STATUS_INACTIVE.AsGuid();
+                    if ( person.Email.IsNotNullOrWhiteSpace() &&
+                        person.IsDeceased == false && 
+                        person.RecordStatusValue.Guid != inactiveRecordValueGuid )
                     {
-                        EmailAddress = person.Email,
-                        Status = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() ),
-                        StatusIfNew = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() )
-                    };
-                }
-                else
-                {
-                    Exception ex = new Exception( person.FullName + " was not synced to Mail Chimp because they do not have an email address" );
-                    ExceptionLogService.LogException( ex );
+                        mailChimpMember = new MCModels.Member
+                        {
+                            EmailAddress = person.Email,
+                            Status = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() ),
+                            StatusIfNew = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() )
+                        };
+                    }
+                    else
+                    {
+                        //Exception ex = new Exception( person.FullName + " was not synced to Mail Chimp because they do not have an email address" );
+                        //ExceptionLogService.LogException( ex );
+                    }
+
                 }
             }
             else
@@ -663,50 +698,152 @@ namespace com.bemaservices.MailChimp.Utility
                 oldLastName = mailChimpMember.MergeFields.ContainsKey( "LNAME" ) ? mailChimpMember.MergeFields["LNAME"].ToString().Left( 50 ) : "";
                 oldStatus = mailChimpMember.Status;
 
-                // If the Email Addresses Match, Check the Mail Chimp's Email Status to Update the Rock record.
-                // There's a chance they won't match, because Rock matches on Search Keys which could have contained the old email address.
-                // If They Don't Match, Update Mail Chimp to the Rock Person's Email Address
-                if ( mailChimpMember.EmailAddress.Equals( person.Email, StringComparison.OrdinalIgnoreCase ) )
-                {
-                    string emailNote;
-                    person.EmailPreference = GetRockEmailPrefernce( mailChimpMember.Status );
-                    person.IsEmailActive = GetIsEmailActive( mailChimpMember.Status, out emailNote );
-                    person.EmailNote = emailNote;
-                }
-                else
-                {
-                    mailChimpMember.EmailAddress = person.Email;
-                }
                 // Set the MailChimpMember's LastChanged time to a nullable datetime to compare with the Group Member's Modified Date Time
                 var lastChanged = string.IsNullOrEmpty( mailChimpMember.LastChanged ) ? ( DateTime? ) null : DateTime.Parse( mailChimpMember.LastChanged );
 
-                // If the Group Member has been modified more recently, use it's subscription status.
-                if( groupMembers.FirstOrDefault() != null && groupMembers.FirstOrDefault().ModifiedDateTime > lastChanged )
+                if ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.UpdateExistingRecord ) )
                 {
-                    mailChimpMember.Status = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() );
+                    if ( !mailChimpMember.EmailAddress.Equals( person.Email, StringComparison.OrdinalIgnoreCase ) )
+                    {
+                        mailChimpMember.EmailAddress = person.Email;
+                    }
+
+                    // If the Group Member has been modified more recently, use it's subscription status.
+                    if ( groupMembers.FirstOrDefault() != null && groupMembers.FirstOrDefault().ModifiedDateTime > lastChanged )
+                    {
+                        mailChimpMember.Status = GetMailChimpMemberStatus( groupMembers.FirstOrDefault() );
+                    }
+
                 }
 
-                // Update each Group member's Status From the Mailchimp Member's Status
-                foreach( var member in groupMembers )
+                if ( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.UpdateExistingRecord ) )
                 {
-                    member.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
-                }
-                // At this point, all the changes in Rock are done, so Save any changes
-                recordsUpdated = rockContext.SaveChanges();
+                    if( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.UpdateRockEmailPreferences ) )
+                    {
+                        // If the Email Addresses Match, Check the Mail Chimp's Email Status to Update the Rock record.
+                        // There's a chance they won't match, because Rock matches on Search Keys which could have contained the old email address.
+                        // If They Don't Match, Update Mail Chimp to the Rock Person's Email Address
+                        if ( mailChimpMember.EmailAddress.Equals( person.Email, StringComparison.OrdinalIgnoreCase ) )
+                        {
+                            string emailNote;
+                            person.EmailPreference = GetRockEmailPreference( mailChimpMember.Status );
+                            person.IsEmailActive = GetIsEmailActive( mailChimpMember.Status, out emailNote );
+                            person.EmailNote = emailNote;
+                        }
+                    }
 
+                    // Update each Group member's Status From the Mailchimp Member's Status
+                    foreach ( var member in groupMembers )
+                    {
+                        member.GroupMemberStatus = GetRockGroupMemberStatus( mailChimpMember.Status );
+                    }
+                }
             }
 
             try
             {
-                if ( mailChimpMember != null)
+                var tagAttribute = AttributeCache.Get( SystemGuid.Attribute.PERSON_MAIL_CHIMP_TAGS.AsGuid() );
+                if ( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.ImportTags ) &&
+                    tagAttribute != null &&
+                    _mailChimpAccount != null &&
+                    mailChimpMember != null &&
+                    mailChimpListId.IsNotNullOrWhiteSpace()
+                    )
                 {
-                    // Check to see if there are actually any changes in the record before pushing it to mailchimp
-                    if ( oldFirstName != person.NickName || oldLastName != person.LastName || oldStatus != mailChimpMember.Status || UpdateMergeFields( ref mailChimpMember, groupMembers, person ) > 0 /* || UpdateAddress( ref mailChimpMember, person, rockContext ) */ )
+                    List<TagResponse> tagList = new List<TagResponse>();
+                    List<string> errorMessages = new List<string>();
+                    if ( !MailchimpDirectApi.GetTagsForUser( _mailChimpAccount, mailChimpListId, mailChimpMember.Id, out tagList, errorMessages ) )
                     {
-                        mailChimpMember.MergeFields.AddOrReplace( "FNAME", person.NickName );
-                        mailChimpMember.MergeFields.AddOrReplace( "LNAME", person.LastName );
+                        errorMessages.Add( String.Format( "Could not get mailchimp tags for Person #{0}", personId ) );
+                        HandleErrorMessages( errorMessages );
+                    }
+                    else
+                    {
+                        var definedValueList = new List<DefinedValue>();
+                        person.LoadAttributes();
+                        foreach ( var tag in tagList )
+                        {
+                            DefinedValue definedValue = null;
+                            if ( mailChimpTags == null )
+                            {
+                                mailChimpTags = new DefinedValueService( new RockContext() )
+                                        .Queryable()
+                                        .AsNoTracking()
+                                        .Where( dv => dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid && dv.ForeignId.HasValue )
+                                        .ToDictionary( dv => dv.ForeignId.Value, dv => dv );
+                            }
+                            if ( mailChimpTags.ContainsKey( tag.Id ) )
+                            {
+                                definedValue = mailChimpTags[tag.Id];
+                            }
+                            if ( definedValue == null )
+                            {
+                                definedValue = definedValueService
+                                    .Queryable()
+                                    .AsNoTracking()
+                                    .Where( dv => dv.ForeignId == tag.Id && dv.DefinedType.Guid == MailchimpTagDefinedTypeGuid )
+                                    .FirstOrDefault();
+                                if ( definedValue == null )
+                                {
+                                    try
+                                    {
+                                        var tagValue = new DefinedValue();
+                                        tagValue.ForeignId = tag.Id;
+                                        tagValue.ForeignKey = MailChimp.Constants.ForeignKey;
+                                        tagValue.IsSystem = true;
+                                        tagValue.DefinedTypeId = DefinedTypeCache.Get( MailchimpTagDefinedTypeGuid ).Id;
+                                        tagValue.Value = tag.Name;
+                                        definedValueService.Add( tagValue );
+                                        rockContext.SaveChanges();
+                                        definedValue = definedValueService.Get( tagValue.Guid );
+                                    }
+                                    catch ( Exception ex )
+                                    {
+                                        string message = String.Format( "Error Adding Tag {0} to Rock", tag.Name );
+                                        ExceptionLogService.LogException( new Exception( message, ex ) );
+                                    }
+                                }
+                                if ( definedValue != null && definedValue.ForeignId.HasValue )
+                                {
+                                    mailChimpTags.AddOrReplace( definedValue.ForeignId.Value, definedValue );
+                                }
+                            }
+                            if ( definedValue != null )
+                            {
+                                definedValueList.Add( definedValue );
+                            }
+                        }
+                        person.SetAttributeValue( tagAttribute.Key, definedValueList.Select( dv => dv.Guid ).ToList().AsDelimited( "," ) );
+                        person.SaveAttributeValue( tagAttribute.Key, rockContext );
+                    }
+                }
+            }
+            catch ( Exception ex )
+            {
+                string message = String.Format( "Error Importing Tags to Rock" );
+                ExceptionLogService.LogException( new Exception( message, ex ) );
+            }
 
-                        var result = _mailChimpManager.Members.AddOrUpdateAsync( mailChimpListId, mailChimpMember ).Result;
+            // At this point, all the changes in Rock are done, so Save any changes
+            recordsUpdated = rockContext.SaveChanges();
+
+            try
+            {
+                if ( mailChimpMember != null )
+                {
+                    if (
+                        ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.UpdateExistingRecord ) && !isNewMailChimpRecord ) ||
+                        ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddNewRecord ) && isNewMailChimpRecord )
+                        )
+                    {
+                        // Check to see if there are actually any changes in the record before pushing it to mailchimp
+                        if ( oldFirstName != person.NickName || oldLastName != person.LastName || oldStatus != mailChimpMember.Status || UpdateMergeFields( ref mailChimpMember, groupMembers, person ) > 0 /* || UpdateAddress( ref mailChimpMember, person, rockContext ) */ )
+                        {
+                            mailChimpMember.MergeFields.AddOrReplace( "FNAME", person.NickName );
+                            mailChimpMember.MergeFields.AddOrReplace( "LNAME", person.LastName );
+
+                            var result = _mailChimpManager.Members.AddOrUpdateAsync( mailChimpListId, mailChimpMember ).Result;
+                        }
                     }
                 }
             }
@@ -717,23 +854,27 @@ namespace com.bemaservices.MailChimp.Utility
                     if ( ex is MCNet.Core.MailChimpException )
                     {
                         var mailChimpException = ex as MCNet.Core.MailChimpException;
-                        ExceptionLogService.LogException( new Exception( mailChimpException.Message + mailChimpException.Detail ) );
+                        string message = String.Format( "Error pushing member changes to MailChimp (Type 1):" );
+                        var innerException = new Exception( mailChimpException.Message + mailChimpException.Detail, ex );
+                        ExceptionLogService.LogException( new Exception( message, innerException ) );
                     }
                     else
                     {
-                        ExceptionLogService.LogException( ex );
+                        string message = String.Format( "Error pushing member changes to MailChimp (Type 2):" );
+                        ExceptionLogService.LogException( new Exception( message, ex ) );
                     }
                 }
             }
             catch ( Exception ex )
             {
-                ExceptionLogService.LogException( ex );
+                string message = String.Format( "Error pushing member changes to MailChimp (Type 3):" );
+                ExceptionLogService.LogException( new Exception( message, ex ) );
             }
 
             return recordsUpdated;
         }
 
-        private EmailPreference GetRockEmailPrefernce( MCModels.Status mailChimpEmailStatus )
+        private EmailPreference GetRockEmailPreference( MCModels.Status mailChimpEmailStatus )
         {
             EmailPreference preference = EmailPreference.EmailAllowed;
 
@@ -775,9 +916,9 @@ namespace com.bemaservices.MailChimp.Utility
                 case MCModels.Status.Subscribed:
                     memberStatus = GroupMemberStatus.Active;
                     break;
-                //case MCModels.Status.Pending:
-                //    memberStatus = GroupMemberStatus.Pending;
-                //    break;
+                    //case MCModels.Status.Pending:
+                    //    memberStatus = GroupMemberStatus.Pending;
+                    //    break;
             }
 
             return memberStatus;
@@ -802,7 +943,7 @@ namespace com.bemaservices.MailChimp.Utility
                     memberStatus = Status.Subscribed;
                 }
             }
-                  
+
             return memberStatus;
         }
 
@@ -829,7 +970,7 @@ namespace com.bemaservices.MailChimp.Utility
                 if ( lava.IsNotNullOrWhiteSpace() )
                 {
                     var newValue = lava.ResolveMergeFields( mergeFields, null, enabledLavaCommands );
-                    if( !member.MergeFields.ContainsKey( definedValue.Value ) || newValue != member.MergeFields[definedValue.Value].ToString() )
+                    if ( !member.MergeFields.ContainsKey( definedValue.Value ) || newValue != member.MergeFields[definedValue.Value].ToString() )
                     {
                         member.MergeFields.AddOrReplace( definedValue.Value, newValue );
                         valuesUpdated++;
@@ -846,11 +987,11 @@ namespace com.bemaservices.MailChimp.Utility
             bool addressUpdated = false;
 
             var personAddress = rockPerson.GetHomeLocation( rockContext );
-            if( personAddress != null )
+            if ( personAddress != null )
             {
                 var mcAddressJsonString = mailChimpMember.MergeFields["ADDRESS"].ToString();
 
-                if( mcAddressJsonString != null )
+                if ( mcAddressJsonString != null )
                 {
 
                     MCModels.Address mcAddress = Newtonsoft.Json.JsonConvert.DeserializeObject<MCModels.Address>( mcAddressJsonString );
@@ -874,7 +1015,7 @@ namespace com.bemaservices.MailChimp.Utility
                     }
                 }
 
-                if( addressUpdated )
+                if ( addressUpdated )
                 {
                     var mcAddress = new MCModels.Address()
                     {
@@ -894,6 +1035,31 @@ namespace com.bemaservices.MailChimp.Utility
             return addressUpdated;
 
         }
+        private void HandleErrorMessages( List<string> errorMessages )
+        {
+            if ( errorMessages.Any() )
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append( errorMessages );
+                ExceptionLogService.LogException( new Exception( sb.ToString() ) );
+            }
+        }
 
+    }
+
+    public class MailChimpSyncSettings
+    {
+        public int? DaysToSyncUpdates { get; set; }
+        public List<SyncPrivileges> MailChimpToRockSettings { get; set; }
+        public List<SyncPrivileges> RockToMailChimpSettings { get; set; }
+    }
+
+    public enum SyncPrivileges
+    {
+        AddNewRecord = 0,
+        UpdateExistingRecord = 1,
+        AddRecordToList = 2,
+        ImportTags = 3,
+        UpdateRockEmailPreferences = 4
     }
 }
