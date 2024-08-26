@@ -20,7 +20,7 @@ namespace com.bemaservices.MailChimp.Jobs
     [EnumsField( "MailChimp To Rock Settings",
         Description = "The rights MailChimp has to edit Rock.",
         EnumSourceType = typeof( SyncPrivileges ),
-        DefaultValue = "0,1,2,3",
+        DefaultValue = "0,1,2,3,4",
         Key = "MailChimpToRock")]
     [EnumsField( "Rock To MailChimp Settings",
         Description = "The rights Rock has to edit MailChimp.",

@@ -379,7 +379,7 @@ namespace com.bemaservices.MailChimp.Utility
                         var rockPerson = GetRockPerson( member, mailchimpSyncSettings );
                         if ( rockPerson != null )
                         {
-                            mailChimpMemberLookUp.AddOrIgnore( rockPerson.Id, member );
+                            mailChimpMemberLookUp.AddOrReplace( rockPerson.Id, member );
 
                             SyncPerson( rockPerson.Id, member, mailChimpListId, groupIds, mailchimpSyncSettings, mailChimpTags );
                         }
@@ -493,14 +493,16 @@ namespace com.bemaservices.MailChimp.Utility
                             }
                             catch ( Exception ex )
                             {
-                                ExceptionLogService.LogException( ex );
+                                string message = String.Format( "Error Building a new Mailchimp Member object from a Rock email address" );
+                                ExceptionLogService.LogException( new Exception( message, ex ) );
                             }
                         }
                     }
                 }
                 catch ( Exception ex )
                 {
-                    ExceptionLogService.LogException( ex );
+                    string message = String.Format( "Error Building new Mailchimp Member objects from a Rock GroupMember." );
+                    ExceptionLogService.LogException( new Exception( message, ex ) );
                 }
 
             }
@@ -573,7 +575,7 @@ namespace com.bemaservices.MailChimp.Utility
                 person.LastName = lastName.FixCase();
                 person.IsEmailActive = isEmailActive;
                 person.Email = email;
-                person.EmailPreference = GetRockEmailPrefernce( member.Status );
+                person.EmailPreference = GetRockEmailPreference( member.Status );
                 person.EmailNote = emailNote;
                 person.RecordTypeValueId = DefinedValueCache.Get( Rock.SystemGuid.DefinedValue.PERSON_RECORD_TYPE_PERSON.AsGuid() ).Id;
                 person.ForeignKey = mailchimpForeignKey;
@@ -716,15 +718,18 @@ namespace com.bemaservices.MailChimp.Utility
 
                 if ( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.UpdateExistingRecord ) )
                 {
-                    // If the Email Addresses Match, Check the Mail Chimp's Email Status to Update the Rock record.
-                    // There's a chance they won't match, because Rock matches on Search Keys which could have contained the old email address.
-                    // If They Don't Match, Update Mail Chimp to the Rock Person's Email Address
-                    if ( mailChimpMember.EmailAddress.Equals( person.Email, StringComparison.OrdinalIgnoreCase ) )
+                    if( mailchimpSyncSettings.MailChimpToRockSettings.Contains( SyncPrivileges.UpdateRockEmailPreferences ) )
                     {
-                        string emailNote;
-                        person.EmailPreference = GetRockEmailPrefernce( mailChimpMember.Status );
-                        person.IsEmailActive = GetIsEmailActive( mailChimpMember.Status, out emailNote );
-                        person.EmailNote = emailNote;
+                        // If the Email Addresses Match, Check the Mail Chimp's Email Status to Update the Rock record.
+                        // There's a chance they won't match, because Rock matches on Search Keys which could have contained the old email address.
+                        // If They Don't Match, Update Mail Chimp to the Rock Person's Email Address
+                        if ( mailChimpMember.EmailAddress.Equals( person.Email, StringComparison.OrdinalIgnoreCase ) )
+                        {
+                            string emailNote;
+                            person.EmailPreference = GetRockEmailPreference( mailChimpMember.Status );
+                            person.IsEmailActive = GetIsEmailActive( mailChimpMember.Status, out emailNote );
+                            person.EmailNote = emailNote;
+                        }
                     }
 
                     // Update each Group member's Status From the Mailchimp Member's Status
@@ -849,23 +854,27 @@ namespace com.bemaservices.MailChimp.Utility
                     if ( ex is MCNet.Core.MailChimpException )
                     {
                         var mailChimpException = ex as MCNet.Core.MailChimpException;
-                        ExceptionLogService.LogException( new Exception( mailChimpException.Message + mailChimpException.Detail ) );
+                        string message = String.Format( "Error pushing member changes to MailChimp (Type 1):" );
+                        var innerException = new Exception( mailChimpException.Message + mailChimpException.Detail, ex );
+                        ExceptionLogService.LogException( new Exception( message, innerException ) );
                     }
                     else
                     {
-                        ExceptionLogService.LogException( ex );
+                        string message = String.Format( "Error pushing member changes to MailChimp (Type 2):" );
+                        ExceptionLogService.LogException( new Exception( message, ex ) );
                     }
                 }
             }
             catch ( Exception ex )
             {
-                ExceptionLogService.LogException( ex );
+                string message = String.Format( "Error pushing member changes to MailChimp (Type 3):" );
+                ExceptionLogService.LogException( new Exception( message, ex ) );
             }
 
             return recordsUpdated;
         }
 
-        private EmailPreference GetRockEmailPrefernce( MCModels.Status mailChimpEmailStatus )
+        private EmailPreference GetRockEmailPreference( MCModels.Status mailChimpEmailStatus )
         {
             EmailPreference preference = EmailPreference.EmailAllowed;
 
@@ -1050,6 +1059,7 @@ namespace com.bemaservices.MailChimp.Utility
         AddNewRecord = 0,
         UpdateExistingRecord = 1,
         AddRecordToList = 2,
-        ImportTags = 3
+        ImportTags = 3,
+        UpdateRockEmailPreferences = 4
     }
 }
