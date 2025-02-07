@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Linq;
+using System.Text;
 using com.bemaservices.MailChimp.Utility;
 using Quartz;
 
@@ -9,6 +10,7 @@ using Rock;
 using Rock.Attribute;
 using Rock.Communication;
 using Rock.Data;
+using Rock.Jobs;
 using Rock.Model;
 using Rock.Web.Cache;
 
@@ -21,55 +23,71 @@ namespace com.bemaservices.MailChimp.Jobs
         Description = "The rights MailChimp has to edit Rock.",
         EnumSourceType = typeof( SyncPrivileges ),
         DefaultValue = "0,1,2,3,4",
-        Key = "MailChimpToRock")]
+        Key = "MailChimpToRock" )]
     [EnumsField( "Rock To MailChimp Settings",
         Description = "The rights Rock has to edit MailChimp.",
         EnumSourceType = typeof( SyncPrivileges ),
         DefaultValue = "0,1,2",
-        Key = "RockToMailChimp")]
+        Key = "RockToMailChimp" )]
     [DisallowConcurrentExecution]
-    public class MailChimpSync : IJob
+    public class MailChimpSync : RockJob
     {
-        public virtual void Execute( IJobExecutionContext context )
+        public override void Execute()
         {
-            JobDataMap dataMap = context.JobDetail.JobDataMap;
-
             var accounts = DefinedTypeCache.Get( MailChimp.SystemGuid.SystemDefinedTypes.MAIL_CHIMP_ACCOUNTS.AsGuid() );
 
-            var audienceGuids = dataMap.GetString( "Audiences" ).SplitDelimitedValues().AsGuidList();
-            var daysToSyncUpdates = dataMap.GetString( "DaysToSyncUpdates" ).AsIntegerOrNull();
-            var mailChimpToRockSettings = dataMap.GetString( "MailChimpToRock" ).SplitDelimitedValues().AsEnumList<SyncPrivileges>();
-            var rockToMailChimpSettings = dataMap.GetString( "RockToMailChimp" ).SplitDelimitedValues().AsEnumList<SyncPrivileges>();
+            var audienceGuids = GetAttributeValue( "Audiences" ).SplitDelimitedValues().AsGuidList();
+            var daysToSyncUpdates = GetAttributeValue( "DaysToSyncUpdates" ).AsIntegerOrNull();
+            var mailChimpToRockSettings = GetAttributeValue( "MailChimpToRock" ).SplitDelimitedValues().AsEnumList<SyncPrivileges>();
+            var rockToMailChimpSettings = GetAttributeValue( "RockToMailChimp" ).SplitDelimitedValues().AsEnumList<SyncPrivileges>();
 
             MailChimpSyncSettings mailChimpSyncSettings = new MailChimpSyncSettings();
             mailChimpSyncSettings.DaysToSyncUpdates = daysToSyncUpdates;
             mailChimpSyncSettings.MailChimpToRockSettings = mailChimpToRockSettings;
             mailChimpSyncSettings.RockToMailChimpSettings = rockToMailChimpSettings;
 
+            StringBuilder results = new StringBuilder();
             foreach ( var account in accounts.DefinedValues )
             {
                 try
                 {
                     Utility.MailChimpApi mailChimpApi = new Utility.MailChimpApi( account );
                     var mailChimpLists = mailChimpApi.GetMailChimpLists();
+                    results.AppendFormat( "Grabbed {0} Audiences from Mailchimp", mailChimpLists.Count );
 
                     foreach ( var list in mailChimpLists )
                     {
                         if ( !audienceGuids.Any() || audienceGuids.Contains( list.Guid ) )
                         {
-                            mailChimpApi.GetMailChimpMergeFields( DefinedValueCache.Get( list.Guid ) );
+                            results.AppendLine().AppendLine().AppendFormat( "Syncing {0}:", list.Value );
+                            results.Append( "<ul>" );
 
-                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), mailChimpSyncSettings );
+                            var mergefields = mailChimpApi.GetMailChimpMergeFields( DefinedValueCache.Get( list.Guid ), out List<string> mergeFieldStatusMessages );
+                            foreach(var mergeFieldStatusMessage in mergeFieldStatusMessages )
+                            {
+                                results.AppendFormat( "<li>{0}</li>", mergeFieldStatusMessage );
+                            }
+
+                            mailChimpApi.SyncMembers( DefinedValueCache.Get( list.Guid ), mailChimpSyncSettings, out List<String> membersStatusMessages );
+                            foreach ( var membersStatusMessage in membersStatusMessages )
+                            {
+                                results.AppendFormat( "<li>{0}</li>", membersStatusMessage );
+                            }
+
+                            results.Append( "</ul>" );
                         }
                     }
                 }
                 catch ( Exception ex )
                 {
                     string message = String.Format( "Error Syncing {0} Account from Mailchimp", account.Value );
+                    results.AppendLine( message );
                     ExceptionLogService.LogException( new Exception( message, ex ) );
                 }
 
             }
+
+            this.Result = results.ToString();
         }
     }
 }

@@ -358,14 +358,15 @@ namespace com.bemaservices.MailChimp
         /// </summary>
         protected void BindDefinedValuesGrid()
         {
-            var mailChimpListValueCahce = DefinedValueCache.Get( PageParameter( "ListId" ).AsInteger() );
+            var mailChimpListValueCache = DefinedValueCache.Get( PageParameter( "ListId" ).AsInteger() );
 
-            var mailChimpAccountValueCache = DefinedValueCache.Get( mailChimpListValueCahce.GetAttributeValue( AttributeCache.Get( MailChimp.SystemGuid.Attribute.MAIL_CHIMP_AUDIENCE_ACCOUNT_ATTRIBUTE.AsGuid() ).Key ).AsGuid() );
+            var mailChimpAccountValueCache = DefinedValueCache.Get( mailChimpListValueCache.GetAttributeValue( AttributeCache.Get( MailChimp.SystemGuid.Attribute.MAIL_CHIMP_AUDIENCE_ACCOUNT_ATTRIBUTE.AsGuid() ).Key ).AsGuid() );
 
-            if ( _definedType != null && mailChimpListValueCahce != null && mailChimpAccountValueCache != null )
+            if ( _definedType != null && mailChimpListValueCache != null && mailChimpAccountValueCache != null )
             {
                 Utility.MailChimpApi mailChimpApi = new Utility.MailChimpApi( mailChimpAccountValueCache );
-                gDefinedValues.DataSource = mailChimpApi.GetMailChimpMergeFields( mailChimpListValueCahce );
+                var mergeStatusFieldMessages = new List<string>();
+                gDefinedValues.DataSource = mailChimpApi.GetMailChimpMergeFields( mailChimpListValueCache, out mergeStatusFieldMessages );
                 gDefinedValues.DataBind();
             }
         }
