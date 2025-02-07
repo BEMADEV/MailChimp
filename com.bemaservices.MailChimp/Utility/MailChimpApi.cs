@@ -411,6 +411,7 @@ namespace com.bemaservices.MailChimp.Utility
                 var rockContext = new RockContext();
                 var attributeValueService = new AttributeValueService( rockContext );
                 var groupService = new GroupService( rockContext );
+                var groupMemberService = new GroupMemberService( rockContext );
                 rockContext.Database.CommandTimeout = 600;
 
                 //Get all Groups that have an attribute set to this Mail Chimp List's Defined Value.
@@ -472,33 +473,33 @@ namespace com.bemaservices.MailChimp.Utility
                     try
                     {
 
-                        var memberList = groupService
+                        var memberList = groupMemberService
                             .Queryable()
                             .AsNoTracking()
-                            .Where( g => g.Id == groupId )
-                            .SelectMany( g => g.Members )
-                            .Where( gm => !dateLimit.HasValue || gm.ModifiedDateTime >= dateLimit || gm.Person.ModifiedDateTime >= dateLimit )
+                            .Where( gm =>
+                                gm.GroupId == groupId &&
+                                gm.IsArchived == false &&
+                                gm.GroupMemberStatus == GroupMemberStatus.Active &&
+                                ( !dateLimit.HasValue || gm.ModifiedDateTime >= dateLimit || gm.Person.ModifiedDateTime >= dateLimit )
+                                )
                             .ToList();
 
-                        if ( memberList.Any() )
+                        foreach ( var groupMember in memberList )
                         {
-                            foreach ( var groupMember in memberList )
+                            try
                             {
-                                try
+                                if ( !mailChimpMemberLookUp.ContainsKey( groupMember.PersonId ) )
                                 {
-                                    if ( !mailChimpMemberLookUp.ContainsKey( groupMember.PersonId ) )
+                                    if ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddRecordToList ) )
                                     {
-                                        if ( mailchimpSyncSettings.RockToMailChimpSettings.Contains( SyncPrivileges.AddRecordToList ) )
-                                        {
-                                            AddPersonToMailChimp( groupMember, mailChimpListId, audienceSyncInfo, mailchimpSyncSettings );
-                                        }
+                                        AddPersonToMailChimp( groupMember, mailChimpListId, audienceSyncInfo, mailchimpSyncSettings );
                                     }
                                 }
-                                catch ( Exception ex )
-                                {
-                                    string message = String.Format( "Error Adding Person #{0} to Mailchimp Audience '{1}'", groupMember.Person.Id, mailChimpList.Value );
-                                    ExceptionLogService.LogException( new Exception( message, ex ) );
-                                }
+                            }
+                            catch ( Exception ex )
+                            {
+                                string message = String.Format( "Error Adding Person #{0} to Mailchimp Audience '{1}'", groupMember.Person.Id, mailChimpList.Value );
+                                ExceptionLogService.LogException( new Exception( message, ex ) );
                             }
                         }
                     }
