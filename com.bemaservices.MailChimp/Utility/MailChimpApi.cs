@@ -19,6 +19,7 @@ using DotLiquid.Tags;
 using MailChimp.Net.Models;
 using System.Security.Cryptography.X509Certificates;
 using com.bemaservices.MailChimp.Utility.Api;
+using Rock.Communication;
 
 namespace com.bemaservices.MailChimp.Utility
 {
@@ -89,7 +90,7 @@ namespace com.bemaservices.MailChimp.Utility
                 catch ( Exception ex )
                 {
                     string message = String.Format( "Error Grabbing Mailchimp Audiences from Rock. This is most likely due to the configured Mailchimp account being invalid or closed. Please check your configuration to verify you are using an active Mailchimp account." );
-                    ExceptionLogService.LogException( new Exception( message ) );
+                    ExceptionLogService.LogException( new Exception( message, ex ) );
                 }
 
                 try
@@ -211,7 +212,7 @@ namespace com.bemaservices.MailChimp.Utility
                 catch ( Exception ex )
                 {
                     string message = String.Format( "Error Grabbing Mail Chimp Merge Fields from Rock. This is most likely due to the configured Mailchimp account being invalid or closed. Please check your configuration to verify you are using an active Mailchimp account." );
-                    ExceptionLogService.LogException( new Exception( message ) );
+                    ExceptionLogService.LogException( new Exception( message, ex ) );
                     mergeFieldStatusMessages.Add( message );
                 }
 
@@ -678,7 +679,7 @@ namespace com.bemaservices.MailChimp.Utility
                 person.RecordTypeValueId = DefinedValueCache.Get( Rock.SystemGuid.DefinedValue.PERSON_RECORD_TYPE_PERSON.AsGuid() ).Id;
                 person.ForeignKey = mailchimpForeignKey;
 
-                if ( !person.Email.IsValidEmail() )
+                if ( !EmailAddressFieldValidator.IsValid( person.Email ) )
                 {
                     ExceptionLogService.LogException( new Exception( "Could not Add Mailchimp Member because their email address isn't valid(" + person.Email + ")" ) );
                     return null;
@@ -961,7 +962,10 @@ namespace com.bemaservices.MailChimp.Utility
                     {
                         var mailChimpException = ex as MCNet.Core.MailChimpException;
                         string message = String.Format( "Error pushing member changes to MailChimp (Type 1):" );
-                        var innerException = new Exception( mailChimpException.Message + mailChimpException.Detail, ex );
+                        string errors = mailChimpException.Errors.Select( error => error.Field + ": " + error.Message ).ToList().AsDelimited( "," );
+                        var evenInnerException = new Exception( errors, ex );
+
+                        var innerException = new Exception( mailChimpException.Message + mailChimpException.Detail, evenInnerException );
                         ExceptionLogService.LogException( new Exception( message, innerException ) );
                     }
                     else
