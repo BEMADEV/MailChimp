@@ -147,18 +147,18 @@ namespace com.bemaservices.MailChimp.Utility.Api
             IRestResponse restResponse = restClient.Execute( restRequest );
             if ( restResponse.StatusCode == HttpStatusCode.Unauthorized )
             {
-                errorMessages.Add( "Failed to authorize MinistrySafe. Please confirm your access token." );
+                errorMessages.Add( "Failed to authorize Mailchimp. Please confirm your access token." );
                 return false;
             }
             if ( restResponse.StatusCode != HttpStatusCode.OK )
             {
-                errorMessages.Add( "Failed to get MinistrySafe Users: " + restResponse.Content );
+                errorMessages.Add( "Failed to get Mailchimp Tags for User: " + restResponse.Content );
                 return false;
             }
             var tagSearchResponse = JsonConvert.DeserializeObject<TagSearchResponse>( restResponse.Content );
             if ( tagSearchResponse == null )
             {
-                errorMessages.Add( "Get Users is not valid: " + restResponse.Content );
+                errorMessages.Add( "Get Tags for User is not valid: " + restResponse.Content );
                 return false;
             }
             else
