@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 using MCNet = MailChimp.Net;
 using MCInterfaces = MailChimp.Net.Interfaces;
@@ -11,13 +10,10 @@ using MCModels = MailChimp.Net.Models;
 using Rock;
 using Rock.Data;
 using Rock.Model;
-using Rock.Attribute;
 using Rock.Web.Cache;
 using System.Data.Entity;
 using MailChimp.Net.Core;
-using DotLiquid.Tags;
 using MailChimp.Net.Models;
-using System.Security.Cryptography.X509Certificates;
 using com.bemaservices.MailChimp.Utility.Api;
 using Rock.Communication;
 

@@ -1,0 +1,11 @@
+{
+  "lockFileVersion": 1,
+  "versions": [
+    {
+      "version": "1.0.0",
+      "installedFiles": [
+        "Bin/com.bemaservices.MailChimp.dll"
+      ]
+    }
+  ]
+}
