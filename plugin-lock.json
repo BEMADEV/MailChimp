@@ -12,6 +12,12 @@
       "installedFiles": [
         "Bin/com.bemaservices.MailChimp.dll"
       ]
+    },
+    {
+      "version": "1.0.6",
+      "installedFiles": [
+        "Bin/com.bemaservices.MailChimp.dll"
+      ]
     }
   ]
 }

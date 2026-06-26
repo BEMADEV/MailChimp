@@ -4,7 +4,7 @@
         "code": "com.bemaservices"
     },
     "name": "MailChimp",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "include": {
         "com.bemaservices.MailChimp/bin/Release/net472/com.bemaservices.MailChimp.dll": "Bin/",
         "com.bemaservices.MailChimp.Obsidian/dist/**": "Plugins/com_bemaservices/MailChimp"
